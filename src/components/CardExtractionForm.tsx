@@ -1,24 +1,25 @@
 "use client";
-
 import { useBusinessCardExtraction } from "@/hooks";
 import { useFormik } from "formik";
-import Image from "next/image";
-import { useState } from "react";
-import { ImagePreview, ProgressIndicator } from ".";
+import { AlertCircle, FileImage, X } from "lucide-react";
+import { FormEvent, useState } from "react";
+import { CardDetailsList, ImagePreview, UploadImageForm } from ".";
 
 export const BusinessCardExtractionForm: React.FC = () => {
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [previewImages, setPreviewImages] = useState<
-    { file: File; url: string; name: string }[]
-  >([]);
-  const { extractFromImages, isLoading, error, progress, extractedData } =
-    useBusinessCardExtraction();
+    { file: File; url: string; name: string }[] | null
+  >(null);
+  const [showError, setShowError] = useState<boolean>(false);
+  const { extractFromImages, isLoading, error } = useBusinessCardExtraction();
 
   const formik = useFormik({
     initialValues: { images: [] as File[] },
     onSubmit: async () => {
       try {
         await extractFromImages(selectedImages);
+        setShowError(true);
+        setPreviewImages(null);
       } catch (err) {
         console.error(err);
       }
@@ -31,17 +32,25 @@ export const BusinessCardExtractionForm: React.FC = () => {
     const files = Array.from(e.target.files);
     setSelectedImages(files);
 
-    const previews = files.map((file) => ({
-      file,
-      url: URL.createObjectURL(file),
-      name: file.name,
-    }));
-    setPreviewImages(previews);
-
+    const previews = files
+      .map((file) => ({
+        file,
+        url: URL.createObjectURL(file),
+        name: file.name,
+      }))
+      .filter(
+        (newFile) =>
+          !previewImages?.some(
+            (existing) =>
+              existing.name === newFile.name && existing.url === newFile.url
+          )
+      );
+    setPreviewImages((prev) => (prev ? [...prev, ...previews] : previews));
     formik.setFieldValue("images", files);
   };
 
   const handleRemoveImage = (index: number) => {
+    if (!previewImages) return;
     const updatedPreviews = [...previewImages];
     updatedPreviews.splice(index, 1);
     setPreviewImages(updatedPreviews);
@@ -51,69 +60,62 @@ export const BusinessCardExtractionForm: React.FC = () => {
     setSelectedImages(updatedFiles);
   };
 
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    formik.handleSubmit(e);
+  };
+
   return (
-    <div className="space-y-6 bg-gradient-to-bl from-blue-200 via-white to-blue-200 h-full w-full">
-      <form onSubmit={formik.handleSubmit}>
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={handleFileChange}
-          className="block mb-4"
-        />
-        <ImagePreview
-          images={previewImages}
-          onRemove={handleRemoveImage}
-          onPreview={({ name }) => alert(`Preview: ${name}`)}
-        />
-        <button type="submit" className="btn btn-primary" disabled={isLoading}>
-          Extract Data
-        </button>
-      </form>
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div className="text-center space-y-2">
+        <h1 className="text-2xl font-semibold text-slate-800">
+          Business Card Data Extraction
+        </h1>
+        <p className="text-slate-600">
+          Upload business card images to extract contact information
+        </p>
+      </div>
 
-      {isLoading && (
-        <ProgressIndicator progress={progress} isLoading={isLoading} />
-      )}
-
-      {error && <p className="text-red-500">{error}</p>}
-
-      {extractedData.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-lg font-bold">Extracted Data</h2>
-          <table className="table-auto w-full border">
-            <thead>
-              <tr>
-                <th>Company Name</th>
-                <th>Logo</th>
-                <th>Website</th>
-                <th>Email</th>
-                <th>Phone</th>
-              </tr>
-            </thead>
-            <tbody>
-              {extractedData.map((item, idx) => (
-                <tr key={idx}>
-                  <td>{item.companyName}</td>
-                  <td>
-                    {item.logo && (
-                      <Image
-                        src={item.logo}
-                        alt="Logo"
-                        className="h-8"
-                        height={10}
-                        width={10}
-                      />
-                    )}
-                  </td>
-                  <td>{item.url}</td>
-                  <td>{item.email}</td>
-                  <td>{item.phone}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {error && showError && (
+        <div className="flex justify-between border border-red-200 bg-red-50 rounded-lg p-4 ">
+          <div className="flex items-center space-x-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+          <X
+            className="w-5 h-5 text-red-600 flex-shrink-0 cursor-pointer"
+            onClick={() => setShowError(false)}
+          />
         </div>
       )}
+
+      <div className="border border-slate-200 rounded-lg p-6 bg-white shadow-sm min-w-3xl">
+        <div className="space-y-4">
+          {previewImages && previewImages.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <FileImage className="w-4 h-4 text-slate-600" />
+                <h3 className="text-sm font-medium text-slate-700">
+                  Selected Images ({previewImages.length})
+                </h3>
+              </div>
+              <ImagePreview
+                images={previewImages}
+                onRemove={handleRemoveImage}
+              />
+            </div>
+          )}
+
+          <UploadImageForm
+            handleFileChange={handleFileChange}
+            handleSubmit={handleSubmit}
+            isLoading={isLoading}
+            isDisabled={isLoading || selectedImages.length === 0}
+          />
+        </div>
+      </div>
+
+      <CardDetailsList />
     </div>
   );
 };

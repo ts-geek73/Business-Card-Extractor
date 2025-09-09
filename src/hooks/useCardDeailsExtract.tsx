@@ -1,3 +1,4 @@
+"use client";
 import { ExtractedData, ExtractionResult, fileHeaders } from "@/types/Image";
 import { useEffect, useState } from "react";
 
@@ -5,31 +6,31 @@ export const useBusinessCardExtraction = () => {
   const [extractedData, setExtractedData] = useState<ExtractedData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<number>(0);
   const [data, setData] = useState<ExtractedData[] | null>(null);
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        const response = await fetch("/api/extract");
-        if (response.ok) {
-          const details = await response.json();
-          setData(details.cards || []);
-        }
-      } catch (error: unknown) {
-        console.error("Initial data fetch error:", error);
+  const fetchInitialData = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/extract");
+      if (response.ok) {
+        const details = await response.json();
+        setData(details.cards || []);
       }
-    };
-
+    } catch (error: unknown) {
+      console.error("Initial data fetch error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  useEffect(() => {
     fetchInitialData();
   }, []);
-  
+
   const extractFromImages = async (
     images: File[]
   ): Promise<ExtractedData[]> => {
     setIsLoading(true);
     setError(null);
-    setProgress(0);
 
     try {
       const formData = new FormData();
@@ -56,8 +57,9 @@ export const useBusinessCardExtraction = () => {
         setError(result.message || "Extraction failed");
       }
 
-      setProgress(100);
       setExtractedData(result.data);
+      fetchInitialData();
+
       return result.data;
     } catch (err) {
       const errorMessage =
@@ -76,20 +78,17 @@ export const useBusinessCardExtraction = () => {
 
     const rows = data.map((item) => [
       item.companyName,
-      item.logo,
       item.url,
       item.email,
       item.phone,
       item.address,
       item.contactPerson,
       item.designation,
-      item.confidence.toString(),
-      item.rawText || "",
     ]);
 
     const csvContent = [fileHeaders, ...rows]
       .map((row) =>
-        row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+        row.map((cell) => `"${(cell || "").replace(/"/g, '""')}"`).join(",")
       )
       .join("\n");
 
@@ -97,7 +96,7 @@ export const useBusinessCardExtraction = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "company datas.csv";
+    link.download = "company.csv";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -111,6 +110,5 @@ export const useBusinessCardExtraction = () => {
     extractFromImages,
     isLoading,
     error,
-    progress,
   };
 };
