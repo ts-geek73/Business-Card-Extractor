@@ -11,7 +11,8 @@ export const BusinessCardExtractionForm: React.FC = () => {
     { file: File; url: string; name: string }[] | null
   >(null);
   const [showError, setShowError] = useState<boolean>(false);
-  const { extractFromImages, isLoading, error } = useBusinessCardExtraction();
+  const { extractFromImages, isLoading, error, data, ExportToCSV } =
+    useBusinessCardExtraction();
 
   const formik = useFormik({
     initialValues: { images: [] as File[] },
@@ -115,7 +116,11 @@ export const BusinessCardExtractionForm: React.FC = () => {
         </div>
       </div>
 
-      <CardDetailsList />
+      <CardDetailsList
+        isLoading={isLoading}
+        ExportToCSV={ExportToCSV}
+        data={data}
+      />
     </div>
   );
 };

@@ -13,6 +13,7 @@ export interface ExtractedData {
 export interface ExtractionResult {
   success: boolean;
   data: ExtractedData[];
+  allCard?: ExtractedData[];
   processedCount: number;
   message: string;
 }

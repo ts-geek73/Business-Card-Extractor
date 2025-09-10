@@ -1,5 +1,6 @@
 "use client";
 import { ExtractedData, ExtractionResult, fileHeaders } from "@/types/Image";
+import axios from "axios";
 import { useEffect, useState } from "react";
 
 export const useBusinessCardExtraction = () => {
@@ -10,14 +11,17 @@ export const useBusinessCardExtraction = () => {
 
   const fetchInitialData = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const response = await fetch("/api/extract");
-      if (response.ok) {
-        const details = await response.json();
-        setData(details.cards || []);
-      }
-    } catch (error: unknown) {
-      console.error("Initial data fetch error:", error);
+      const response = await axios.get("/api/extract", {
+        params: {
+          _time: `${new Date().getTime()}`,
+        },
+      });
+      setData(response.data.cards);
+    } catch (err) {
+      console.error("Initial data fetch error:", err);
+      setData([]);
     } finally {
       setIsLoading(false);
     }
@@ -26,9 +30,7 @@ export const useBusinessCardExtraction = () => {
     fetchInitialData();
   }, []);
 
-  const extractFromImages = async (
-    images: File[]
-  ): Promise<ExtractedData[]> => {
+  const extractFromImages = async (images: File[]) => {
     setIsLoading(true);
     setError(null);
 
@@ -38,36 +40,26 @@ export const useBusinessCardExtraction = () => {
         formData.append("images", image);
       });
 
-      const response = await fetch("/api/extract", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const result: ExtractionResult = await response.json();
-        setError(
-          `HTTP error! status: ${response.status}, Message:${result.message}`
-        );
-        return [];
-      }
-
-      const result: ExtractionResult = await response.json();
+      const response = await axios.post<ExtractionResult>(
+        "/api/extract",
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        }
+      );
+      const result = response.data;
 
       if (!result.success) {
         setError(result.message || "Extraction failed");
+        return;
       }
 
       setExtractedData(result.data);
-      fetchInitialData();
-
-      return result.data;
+      await fetchInitialData();
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Unknown error occurred";
       setError(errorMessage);
-      return [];
-    } finally {
-      setIsLoading(false);
     }
   };
 

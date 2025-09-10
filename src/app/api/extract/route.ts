@@ -1,17 +1,30 @@
 import { Cards, connectDB } from "@/lib";
 import { ExtractedData } from "@/types/Image";
-import mindee from "mindee";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { generateText } from "ai";
 import { NextRequest, NextResponse } from "next/server";
 
-const modelId = process.env.MINDEE_MODEL_ID || "";
-export const mindeeClient = new mindee.ClientV2({
-  apiKey: process.env.MINDEE_API_KEY,
-});
+const prompt = `Extract structured company data from the text and return a JSON object with the following fields:
+- companyName
+- url
+- email
+- phone
+- address
+- contactPerson
+- designation
+- rawText (include any other relevant information)
 
-const inferenceParams = {
-  modelId: modelId,
-  rag: false,
-};
+Rules:
+1. All values must be strings.
+2. If any field contains multiple values (e.g., phone numbers, emails) return them as a single string, joined with commas.
+3. Do not include arrays or nested objects.
+4. If a field is missing, use an empty string ("").
+5. Return valid JSON only, with no additional text, explanation, or markdown formatting.
+`;
+
+export const google = createGoogleGenerativeAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
@@ -25,56 +38,83 @@ export async function POST(req: NextRequest) {
   }
 
   const extractedData: ExtractedData[] = [];
+  let allCard: ExtractedData[] = [];
 
   try {
     for (const image of images) {
       const arrayBuffer = await image.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      const inputSource = new mindee.BufferInput({
-        buffer,
-        filename: image.name,
+      const { text } = await generateText({
+        model: google("gemini-2.5-flash"),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: prompt,
+              },
+              {
+                type: "image",
+                image: buffer,
+                mediaType: image.type,
+              },
+            ],
+          },
+        ],
       });
+      let structuredData;
+      try {
+        const cleanedText = text
+          .replace(/```json\s*([\s\S]*?)```/, "$1")
+          .trim();
 
-      const res = await mindeeClient.enqueueAndGetInference(
-        inputSource,
-        inferenceParams
-      );
+        structuredData = JSON.parse(cleanedText);
 
-      const cardData = res.getRawHttp();
+        for (const key in structuredData) {
+          if (Array.isArray(structuredData[key])) {
+            structuredData[key] = structuredData[key].join(", ");
+          }
+        }
 
-      const fields = cardData.inference.result.fields;
+        await connectDB();
+        const result = await Cards.insertOne(structuredData);
+        allCard = await Cards.find().sort({ createdAt: -1 });
 
-      const structuredData = {
-        id: "",
-        companyName: fields.company?.value || "not",
-        url: fields.website?.value || "not",
-        email: fields.email_address?.value || "not",
-        phone: fields.phone_number?.value || "not",
-        address: fields.address?.value || "not",
-        contactPerson: fields.name?.value || "not",
-        designation: fields.job_title?.value || "not",
-        rawText: JSON.stringify(cardData),
-      };
-      console.log("🚀 ~ POST ~ structuredData:", structuredData);
+        structuredData.id = result._id.toString();
+      } catch (parseError) {
+        structuredData = {
+          companyName: "Parsing failed",
+          id: "null",
+          url: "Parsing failed",
+          email: "Parsing failed",
+          phone: "Parsing failed",
+          address: "Parsing failed",
+          contactPerson: "Parsing failed",
+          designation: "Parsing failed",
+          rawText: text,
+        };
 
-      await connectDB();
-      const result = await Cards.insertOne(structuredData);
-      console.log("🚀 ~ POST ~ result:", result);
-
-      structuredData.id = result._id.toString();
+        return NextResponse.json({
+          success: false,
+          data: structuredData,
+          processedCount: extractedData.length,
+          message: "Parsing failed",
+        });
+      }
       extractedData.push(structuredData);
     }
 
     return NextResponse.json({
       success: true,
       data: extractedData,
+      allCard,
       processedCount: extractedData.length,
       message: "Extraction successful",
     });
   } catch (error) {
     const err = error as Error;
-    console.log("🚀 ~ POST ~ err:", err);
 
     return NextResponse.json(
       {
@@ -89,7 +129,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   await connectDB();
 
-  const data = await Cards.find();
+  const data = await Cards.find().sort({ createdAt: -1 });
 
   return NextResponse.json({ success: true, cards: data });
 }
